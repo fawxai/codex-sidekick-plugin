@@ -37,6 +37,7 @@ what it must never do.
 
 - The plugin configures pairing and host setup only.
 - It does not reimplement app-server protocol logic.
+- It may provide a narrow discovery-and-claim bootstrap for pairing.
 - It does not become a generic remote process manager.
 - It does not introduce public integration surfaces or port-forwarding defaults.
 

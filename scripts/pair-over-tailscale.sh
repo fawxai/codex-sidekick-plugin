@@ -3,7 +3,6 @@
 set -euo pipefail
 
 SHOW_TOKEN="${SHOW_TOKEN:-0}"
-SHOW_PAIRING_CODE="${SHOW_PAIRING_CODE:-0}"
 QR_FILE="${QR_FILE:-}"
 SCRIPT_DIR="${0:A:h}"
 
@@ -11,9 +10,6 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --show-token)
       SHOW_TOKEN=1
-      ;;
-    --show-pairing-code)
-      SHOW_PAIRING_CODE=1
       ;;
     --qr-file)
       if [[ $# -lt 2 ]]; then
@@ -32,13 +28,20 @@ while [[ $# -gt 0 ]]; do
 done
 
 PORT="${PORT:-4222}"
+PAIR_PORT="${PAIR_PORT:-4231}"
 STATE_DIR="${STATE_DIR:-$HOME/.codex-sidekick}"
 TOKEN_FILE="${TOKEN_FILE:-$STATE_DIR/tailscale-token.txt}"
+CODE_FILE="${CODE_FILE:-$STATE_DIR/pairing-codes.json}"
 LOG_DIR="${LOG_DIR:-$STATE_DIR/logs}"
 LOG_FILE="${LOG_FILE:-$LOG_DIR/app-server.log}"
+PAIRING_LOG_FILE="${PAIRING_LOG_FILE:-$LOG_DIR/pairing-broker.log}"
 LAUNCH_AGENTS_DIR="${LAUNCH_AGENTS_DIR:-$HOME/Library/LaunchAgents}"
 SERVICE_LABEL="${SERVICE_LABEL:-com.fawxai.codex-sidekick.app-server}"
+PAIRING_SERVICE_LABEL="${PAIRING_SERVICE_LABEL:-com.fawxai.codex-sidekick.pairing-broker}"
 PLIST_FILE="${PLIST_FILE:-$LAUNCH_AGENTS_DIR/$SERVICE_LABEL.plist}"
+PAIRING_PLIST_FILE="${PAIRING_PLIST_FILE:-$LAUNCH_AGENTS_DIR/$PAIRING_SERVICE_LABEL.plist}"
+CODE_TTL_SECONDS="${CODE_TTL_SECONDS:-300}"
+CODE_LENGTH="${CODE_LENGTH:-8}"
 APP_BUNDLED_CODEX="/Applications/Codex.app/Contents/Resources/codex"
 if [[ -z "${CODEX_BIN:-}" ]]; then
   if [[ -x "$APP_BUNDLED_CODEX" ]]; then
@@ -48,6 +51,7 @@ if [[ -z "${CODEX_BIN:-}" ]]; then
   fi
 fi
 TAILSCALE_BIN="${TAILSCALE_BIN:-$(command -v tailscale || true)}"
+PYTHON_BIN="${PYTHON_BIN:-$(command -v python3 || true)}"
 
 mkdir -p "$STATE_DIR" "$LOG_DIR" "$LAUNCH_AGENTS_DIR"
 
@@ -58,6 +62,11 @@ fi
 
 if [[ -z "$TAILSCALE_BIN" ]]; then
   echo "tailscale binary not found in PATH" >&2
+  exit 1
+fi
+
+if [[ -z "$PYTHON_BIN" ]]; then
+  echo "python3 is required for the pairing broker" >&2
   exit 1
 fi
 
@@ -81,9 +90,20 @@ if [[ -z "$TAILSCALE_IPV4" ]]; then
 fi
 
 LISTEN_HOST="${LISTEN_HOST:-$TAILSCALE_IPV4}"
-PAIR_HOST="${PAIR_HOST:-${TAILSCALE_DNS_NAME:-$TAILSCALE_IPV4}}"
+BROKER_LISTEN_HOST="${BROKER_LISTEN_HOST:-$TAILSCALE_IPV4}"
+if [[ -z "${PAIR_HOST:-}" ]]; then
+  if [[ -z "$TAILSCALE_DNS_NAME" ]]; then
+    echo "tailscale MagicDNS name not available; discovery-first pairing requires a .ts.net host name" >&2
+    exit 1
+  fi
+  PAIR_HOST="$TAILSCALE_DNS_NAME"
+fi
+HOST_LABEL="${HOST_LABEL:-${TAILSCALE_DNS_NAME:-$PAIR_HOST}}"
+
 LISTEN_URL="ws://$LISTEN_HOST:$PORT"
 PAIRING_URL="ws://$PAIR_HOST:$PORT"
+DISCOVERY_URL="http://$PAIR_HOST:$PAIR_PORT/v1/discover"
+CLAIM_URL="http://$PAIR_HOST:$PAIR_PORT/v1/claim"
 
 if [[ ! -s "$TOKEN_FILE" ]]; then
   python3 - <<'PY' > "$TOKEN_FILE"
@@ -94,43 +114,8 @@ PY
 fi
 
 TOKEN="$(tr -d '\r\n' < "$TOKEN_FILE")"
-PAIRING_ARTIFACT="$(
-  python3 - <<'PY' "$PAIRING_URL" "$TOKEN"
-import base64
-import json
-import sys
-import urllib.parse
 
-pairing_url, token = sys.argv[1:]
-payload = {
-    "version": 1,
-    "websocketURL": pairing_url,
-    "authToken": token,
-}
-encoded = base64.urlsafe_b64encode(
-    json.dumps(payload, separators=(",", ":")).encode()
-).decode().rstrip("=")
-pairing_code = f"codex-sidekick:v1:{encoded}"
-pairing_link = "codexsidekick://pair?code=" + urllib.parse.quote(pairing_code, safe="")
-print(pairing_code)
-print(pairing_link)
-PY
-)"
-PAIRING_CODE="$(printf '%s\n' "$PAIRING_ARTIFACT" | sed -n '1p')"
-PAIRING_LINK="$(printf '%s\n' "$PAIRING_ARTIFACT" | sed -n '2p')"
-
-if [[ -n "$QR_FILE" ]]; then
-  if command -v xcrun >/dev/null 2>&1; then
-    xcrun swift "$SCRIPT_DIR/render-pairing-qr.swift" "$PAIRING_LINK" "$QR_FILE"
-  elif command -v swift >/dev/null 2>&1; then
-    swift "$SCRIPT_DIR/render-pairing-qr.swift" "$PAIRING_LINK" "$QR_FILE"
-  else
-    echo "swift is required to render a pairing QR image" >&2
-    exit 1
-  fi
-fi
-
-write_plist() {
+write_app_server_plist() {
   python3 - <<'PY' "$PLIST_FILE" "$SERVICE_LABEL" "$CODEX_BIN" "$LISTEN_URL" "$TOKEN_FILE" "$STATE_DIR" "$LOG_FILE"
 import plistlib
 import sys
@@ -161,79 +146,200 @@ with open(plist_file, "wb") as handle:
 PY
 }
 
-service_target="gui/$UID/$SERVICE_LABEL"
+write_pairing_plist() {
+  python3 - <<'PY' "$PAIRING_PLIST_FILE" "$PAIRING_SERVICE_LABEL" "$PYTHON_BIN" "$SCRIPT_DIR/sidekick-pairing-broker.py" "$BROKER_LISTEN_HOST" "$PAIR_PORT" "$STATE_DIR" "$TOKEN_FILE" "$DISCOVERY_URL" "$CLAIM_URL" "$PAIRING_URL" "$CODE_TTL_SECONDS" "$CODE_LENGTH" "$HOST_LABEL" "$PAIRING_LOG_FILE"
+import plistlib
+import sys
 
-write_plist
+(
+    plist_file,
+    service_label,
+    python_bin,
+    script_path,
+    listen_host,
+    port,
+    state_dir,
+    token_file,
+    discovery_url,
+    claim_url,
+    websocket_url,
+    ttl_seconds,
+    code_length,
+    host_label,
+    log_file,
+) = sys.argv[1:]
+payload = {
+    "Label": service_label,
+    "ProgramArguments": [
+        python_bin,
+        script_path,
+        "serve",
+        "--listen-host",
+        listen_host,
+        "--port",
+        port,
+        "--state-dir",
+        state_dir,
+        "--token-file",
+        token_file,
+        "--discovery-url",
+        discovery_url,
+        "--claim-url",
+        claim_url,
+        "--websocket-url",
+        websocket_url,
+        "--ttl-seconds",
+        ttl_seconds,
+        "--code-length",
+        code_length,
+        "--host-label",
+        host_label,
+    ],
+    "RunAtLoad": True,
+    "KeepAlive": True,
+    "WorkingDirectory": state_dir,
+    "StandardOutPath": log_file,
+    "StandardErrorPath": log_file,
+    "ProcessType": "Background",
+}
+
+with open(plist_file, "wb") as handle:
+    plistlib.dump(payload, handle, sort_keys=False)
+PY
+}
+
+service_target="gui/$UID/$SERVICE_LABEL"
+pairing_service_target="gui/$UID/$PAIRING_SERVICE_LABEL"
+
+write_app_server_plist
+write_pairing_plist
+
 launchctl bootout "gui/$UID" "$PLIST_FILE" >/dev/null 2>&1 || true
+launchctl bootout "gui/$UID" "$PAIRING_PLIST_FILE" >/dev/null 2>&1 || true
+
 if ! launchctl bootstrap "gui/$UID" "$PLIST_FILE"; then
   echo "launchctl bootstrap failed for $PLIST_FILE" >&2
   echo "Run this helper from a logged-in macOS GUI session that can manage LaunchAgents." >&2
   exit 1
 fi
-launchctl kickstart -k "$service_target" >/dev/null 2>&1 || true
 
-LISTEN_READY=0
-
-for _ in 1 2 3 4 5 6 7 8; do
-  sleep 1
-
-  if command -v curl >/dev/null 2>&1; then
-    if curl --silent --fail "http://$LISTEN_HOST:$PORT/readyz" >/dev/null 2>&1; then
-      LISTEN_READY=1
-      break
-    fi
-  elif command -v lsof >/dev/null 2>&1; then
-    if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
-      LISTEN_READY=1
-      break
-    fi
-  else
-    LISTEN_READY=1
-    break
-  fi
-done
-
-if [[ "$LISTEN_READY" -ne 1 ]]; then
-  echo "codex app-server did not begin listening on port $PORT. Inspect: $LOG_FILE" >&2
-  tail -n 20 "$LOG_FILE" >&2 || true
+if ! launchctl bootstrap "gui/$UID" "$PAIRING_PLIST_FILE"; then
+  echo "launchctl bootstrap failed for $PAIRING_PLIST_FILE" >&2
+  echo "Run this helper from a logged-in macOS GUI session that can manage LaunchAgents." >&2
   exit 1
+fi
+
+launchctl kickstart -k "$service_target" >/dev/null 2>&1 || true
+launchctl kickstart -k "$pairing_service_target" >/dev/null 2>&1 || true
+
+wait_for_ready() {
+  local url="$1"
+  local description="$2"
+  local log_file="$3"
+
+  for _ in 1 2 3 4 5 6 7 8; do
+    sleep 1
+    if command -v curl >/dev/null 2>&1; then
+      if curl --silent --fail "$url" >/dev/null 2>&1; then
+        return 0
+      fi
+    fi
+  done
+
+  echo "$description did not become ready. Inspect: $log_file" >&2
+  tail -n 20 "$log_file" >&2 || true
+  exit 1
+}
+
+wait_for_ready "http://$LISTEN_HOST:$PORT/readyz" "codex app-server" "$LOG_FILE"
+wait_for_ready "http://$BROKER_LISTEN_HOST:$PAIR_PORT/readyz" "pairing broker" "$PAIRING_LOG_FILE"
+
+CODE_PAYLOAD="$("$PYTHON_BIN" "$SCRIPT_DIR/sidekick-pairing-broker.py" issue-code --state-dir "$STATE_DIR" --ttl-seconds "$CODE_TTL_SECONDS" --code-length "$CODE_LENGTH")"
+PAIRING_CODE="$(
+  python3 -c 'import json,sys; payload=json.load(sys.stdin); print(payload["code"])' <<<"$CODE_PAYLOAD"
+)"
+PAIRING_CODE_EXPIRES_AT="$(
+  python3 -c 'import json,sys; payload=json.load(sys.stdin); print(payload["expiresAt"])' <<<"$CODE_PAYLOAD"
+)"
+PAIRING_LINK="$(
+  python3 - <<'PY' "$DISCOVERY_URL" "$PAIRING_CODE"
+import sys
+import urllib.parse
+
+discovery_url, pairing_code = sys.argv[1:]
+query = urllib.parse.urlencode({"discovery": discovery_url, "code": pairing_code})
+print(f"codexsidekick://pair?{query}")
+PY
+)"
+
+if [[ -n "$QR_FILE" ]]; then
+  if command -v xcrun >/dev/null 2>&1; then
+    xcrun swift "$SCRIPT_DIR/render-pairing-qr.swift" "$PAIRING_LINK" "$QR_FILE"
+  elif command -v swift >/dev/null 2>&1; then
+    swift "$SCRIPT_DIR/render-pairing-qr.swift" "$PAIRING_LINK" "$QR_FILE"
+  else
+    echo "swift is required to render a pairing QR image" >&2
+    exit 1
+  fi
 fi
 
 SERVICE_PID="$(
   launchctl print "$service_target" 2>/dev/null | awk '/\bpid = / { print $3; exit }'
 )"
+PAIRING_PID="$(
+  launchctl print "$pairing_service_target" 2>/dev/null | awk '/\bpid = / { print $3; exit }'
+)"
 
-python3 - <<'PY' "$PAIRING_URL" "$LISTEN_URL" "$TOKEN" "$TOKEN_FILE" "$SERVICE_PID" "$LOG_FILE" "$SERVICE_LABEL" "$PLIST_FILE" "$SHOW_TOKEN" "$SHOW_PAIRING_CODE" "$PAIRING_CODE" "$PAIRING_LINK" "$QR_FILE"
+python3 - <<'PY' "$PAIRING_URL" "$LISTEN_URL" "$DISCOVERY_URL" "$CLAIM_URL" "$PAIRING_CODE" "$PAIRING_CODE_EXPIRES_AT" "$CODE_FILE" "$TOKEN" "$TOKEN_FILE" "$SERVICE_PID" "$PAIRING_PID" "$LOG_FILE" "$PAIRING_LOG_FILE" "$SERVICE_LABEL" "$PAIRING_SERVICE_LABEL" "$PLIST_FILE" "$PAIRING_PLIST_FILE" "$SHOW_TOKEN" "$PAIRING_LINK" "$QR_FILE"
 import json
 import sys
 
 (
     pairing_url,
     listen_url,
+    discovery_url,
+    claim_url,
+    pairing_code,
+    pairing_code_expires_at,
+    code_file,
     token,
     token_file,
-    pid,
+    service_pid,
+    pairing_pid,
     log_file,
+    pairing_log_file,
     service_label,
+    pairing_service_label,
     plist_file,
+    pairing_plist_file,
     show_token,
-    show_pairing_code,
-    pairing_code,
     pairing_link,
     qr_file,
 ) = sys.argv[1:]
+
 payload = {
     "status": "started",
     "pairingUrl": pairing_url,
     "listenUrl": listen_url,
+    "discoveryUrl": discovery_url,
+    "claimUrl": claim_url,
+    "pairingCode": pairing_code,
+    "pairingCodeExpiresAt": int(pairing_code_expires_at),
+    "pairingCodeFile": code_file,
     "tokenFile": token_file,
     "serviceLabel": service_label,
+    "pairingServiceLabel": pairing_service_label,
     "plistFile": plist_file,
+    "pairingPlistFile": pairing_plist_file,
     "logFile": log_file,
+    "pairingLogFile": pairing_log_file,
 }
 
-if pid:
-    payload["pid"] = int(pid)
+if service_pid:
+    payload["pid"] = int(service_pid)
+
+if pairing_pid:
+    payload["pairingPid"] = int(pairing_pid)
 
 if show_token == "1":
     payload["token"] = token
@@ -241,9 +347,7 @@ else:
     payload["tokenPreview"] = f"{token[:4]}...{token[-4:]}" if len(token) >= 8 else "<redacted>"
     payload["tokenRedacted"] = True
 
-if show_pairing_code == "1":
-    payload["pairingCode"] = pairing_code
-    payload["pairingLink"] = pairing_link
+payload["pairingLink"] = pairing_link
 
 if qr_file:
     payload["pairingQRCodeFile"] = qr_file

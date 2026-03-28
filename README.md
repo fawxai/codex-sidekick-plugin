@@ -8,10 +8,10 @@ Codex codebase.
 ## Current scope
 
 - Prepare a launchd-managed `codex app-server` listener for the iPhone sidekick
-- Prefer Tailscale host discovery for real-phone pairing
+- Serve a discovery document for real-phone pairing over Tailscale
 - Generate or reuse a bearer token for authenticated websocket pairing
-- Emit a ready-to-use pairing payload for the phone UI
-- Optionally export a pairing code or QR image for one-step phone import
+- Issue short-lived 8-character claim codes
+- Optionally export a QR image that carries the discovery URL plus claim code
 
 ## Binary compatibility
 
@@ -55,7 +55,7 @@ The example marketplace entry uses the standard local plugin path
 
 ## Runtime caveat
 
-The helper uses a per-user macOS LaunchAgent. Run it from a logged-in desktop
+The helper uses per-user macOS LaunchAgents. Run it from a logged-in desktop
 session that has access to `launchctl bootstrap gui/$UID`. Headless shells and
 some CI-style sessions may not have permission to install LaunchAgents.
 
@@ -65,24 +65,31 @@ The pairing helper emits a small JSON payload with:
 
 - `pairingUrl`
 - `listenUrl`
+- `discoveryUrl`
+- `claimUrl`
+- `pairingCode`
+- `pairingCodeExpiresAt`
 - `tokenFile`
 - `serviceLabel`
+- `pairingServiceLabel`
 - `plistFile`
+- `pairingPlistFile`
 - `pid` when available from `launchctl`
+- `pairingPid` when available from `launchctl`
 - `logFile`
+- `pairingLogFile`
 - `tokenPreview` by default
 
-That output is designed so a future plugin UX can surface a QR code or copy
-action without changing the underlying host setup.
+That output is designed so a future plugin UX can surface the correct discovery
+URL and claim step without changing the underlying host setup.
 
 Use `SHOW_TOKEN=1 scripts/pair-over-tailscale.sh` or
 `scripts/pair-over-tailscale.sh --show-token` only when you explicitly need the
 full bearer token in stdout.
 
-Use `SHOW_PAIRING_CODE=1 scripts/pair-over-tailscale.sh` or
-`scripts/pair-over-tailscale.sh --show-pairing-code` when you want a compact
-pairing code plus a `codexsidekick://pair?...` deep link.
-
 Use `QR_FILE=~/.codex-sidekick/pairing-qr.png scripts/pair-over-tailscale.sh`
 or `scripts/pair-over-tailscale.sh --qr-file ~/.codex-sidekick/pairing-qr.png`
 to render a QR PNG that the iPhone app can open directly.
+
+The helper's QR/deep link contains only the discovery URL plus the short-lived
+claim code. It does not embed the bearer token.

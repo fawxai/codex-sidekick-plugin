@@ -9,14 +9,16 @@ their current machine, especially over Tailscale.
    Prefer `/Applications/Codex.app/Contents/Resources/codex` when available.
 2. Run `scripts/pair-over-tailscale.sh`.
 3. Summarize the returned pairing information for the user:
+   - discovery URL
+   - pairing code expiry
    - pairing URL
-   - whether it is loopback or Tailscale
+   - that the host is Tailscale-backed
    - token file location
-   - LaunchAgent label or plist path
-   - log file location
+   - both LaunchAgent labels or plist paths
+   - both log file locations
 4. When the user wants low-friction phone import, rerun the helper with
-   `SHOW_PAIRING_CODE=1` or `--qr-file ...` and share the pairing code or QR
-   image instead of asking them to type the token manually.
+   `--qr-file ...` and share the QR image instead of asking them to type the
+   discovery URL and code manually.
 5. Share the bearer token only when the user truly needs to enter it into the
    phone manually. Prefer reading it from the token file or rerunning the
    helper with `SHOW_TOKEN=1`.
@@ -33,7 +35,9 @@ their current machine, especially over Tailscale.
 - The helper binds `codex app-server` to the host's Tailscale IPv4 address by
   default, loads it as a per-user LaunchAgent, and emits a MagicDNS hostname
   for the phone when available.
-- The pairing code and QR image both carry the existing websocket URL plus
-  bearer token. They do not introduce a separate backend protocol.
+- The helper also loads a pairing broker LaunchAgent that serves discovery and
+  code redemption on the tailnet.
+- The pairing code and QR image carry discovery information plus a short-lived
+  claim code. They do not embed the bearer token.
 - The iOS sidekick accepts authenticated `ws://` pairing for Tailscale hosts,
   but still requires `wss://` for general remote internet hosts.
