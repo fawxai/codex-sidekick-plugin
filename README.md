@@ -75,6 +75,10 @@ If you maintain a separate repo-scoped marketplace, keep the plugin under that
 repo root, often at `./plugins/codex-sidekick-plugin`, and point the repo
 marketplace entry there.
 
+This path format follows the current Codex plugin contract as of March 2026. If
+your installed Codex version changes marketplace path resolution behavior,
+verify the expected structure against that version's plugin docs.
+
 ## Runtime caveat
 
 The helper uses per-user macOS LaunchAgents. Run it from a logged-in desktop

@@ -1,9 +1,9 @@
-#!/bin/zsh
+#!/usr/bin/env bash
 
 set -euo pipefail
 
-SCRIPT_DIR="${0:A:h}"
-REPO_ROOT="${SCRIPT_DIR:h}"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 
 python3 - <<'PY' "$REPO_ROOT"
 from __future__ import annotations
@@ -15,7 +15,8 @@ from pathlib import Path
 
 
 def plugin_path(root: Path, relative_path: str) -> Path:
-    assert relative_path.startswith("./")
+    if not relative_path.startswith("./"):
+        raise ValueError(f"path must start with './': {relative_path}")
     return root / relative_path.removeprefix("./")
 
 
@@ -25,6 +26,8 @@ def load_json(path: Path) -> object:
 
 
 def parse_frontmatter(path: Path) -> dict[str, str]:
+    # Minimal frontmatter parser: handles flat key: value pairs only.
+    # Full YAML parsing is overkill for validating name/description presence.
     text = path.read_text(encoding="utf-8")
     match = re.match(r"^---\n(.*?)\n---\n", text, re.DOTALL)
     if not match:
@@ -70,7 +73,11 @@ if manifest is not None:
                 errors.append(f"{manifest_path}: '{key}' must be a './'-prefixed relative path")
                 continue
 
-            target = plugin_path(root, value)
+            try:
+                target = plugin_path(root, value)
+            except ValueError as exc:
+                errors.append(f"{manifest_path}: {exc}")
+                continue
             if not target.exists():
                 errors.append(f"{manifest_path}: '{key}' points to a missing path: {value}")
 
@@ -121,11 +128,33 @@ elif isinstance(marketplace, dict):
             if not isinstance(category, str) or not category.strip():
                 errors.append(f"{marketplace_path}: plugins[{index}].category must be a non-empty string")
 
-skill_files = sorted((root / "skills").glob("*/SKILL.md"))
-if not skill_files:
-    errors.append(f"{root / 'skills'}: expected at least one bundled skill")
+skills_root = root / "skills"
+if isinstance(manifest, dict):
+    manifest_skills = manifest.get("skills")
+    if isinstance(manifest_skills, str) and manifest_skills.startswith("./"):
+        try:
+            skills_root = plugin_path(root, manifest_skills)
+        except ValueError as exc:
+            errors.append(f"{manifest_path}: {exc}")
 
-for skill_path in skill_files:
+if not skills_root.exists():
+    errors.append(f"{skills_root}: expected bundled skills directory to exist")
+    skill_dirs: list[Path] = []
+else:
+    if not skills_root.is_dir():
+        errors.append(f"{skills_root}: bundled skills path must be a directory")
+        skill_dirs = []
+    else:
+        skill_dirs = sorted(path for path in skills_root.iterdir() if path.is_dir())
+        if not skill_dirs:
+            errors.append(f"{skills_root}: expected at least one bundled skill directory")
+
+for skill_dir in skill_dirs:
+    skill_path = skill_dir / "SKILL.md"
+    if not skill_path.is_file():
+        errors.append(f"{skill_dir}: missing SKILL.md")
+        continue
+
     try:
         frontmatter = parse_frontmatter(skill_path)
     except ValueError as exc:
