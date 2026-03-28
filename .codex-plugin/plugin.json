@@ -1,0 +1,41 @@
+{
+  "name": "codex-sidekick-plugin",
+  "version": "0.1.0",
+  "description": "Pair Codex desktop with the Codex Sidekick iOS app, including Tailscale setup helpers.",
+  "author": {
+    "name": "FawxAI",
+    "url": "https://github.com/fawxai"
+  },
+  "homepage": "https://github.com/fawxai/codex-sidekick-plugin",
+  "repository": "https://github.com/fawxai/codex-sidekick-plugin",
+  "license": "Apache-2.0",
+  "keywords": [
+    "codex",
+    "ios",
+    "sidekick",
+    "tailscale",
+    "pairing"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Codex Sidekick",
+    "shortDescription": "Pair Codex desktop with the native iPhone sidekick app.",
+    "longDescription": "A companion plugin for preparing local and Tailscale pairing targets for the Codex Sidekick iOS app.",
+    "developerName": "FawxAI",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Pairing",
+      "Tailscale",
+      "App Server"
+    ],
+    "websiteURL": "https://github.com/fawxai/codex-sidekick-plugin",
+    "privacyPolicyURL": "https://github.com/fawxai/codex-sidekick-plugin",
+    "termsOfServiceURL": "https://github.com/fawxai/codex-sidekick-plugin",
+    "defaultPrompt": [
+      "Prepare Codex Sidekick pairing over Tailscale.",
+      "Start a Codex app-server for my iPhone sidekick.",
+      "Show me the current sidekick pairing target."
+    ],
+    "brandColor": "#5F6770"
+  }
+}
