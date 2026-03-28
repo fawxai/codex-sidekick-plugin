@@ -28,6 +28,11 @@ their current machine, especially over Tailscale.
    user to point `CODEX_BIN` at a newer or repo-built Codex binary.
 8. If `launchctl bootstrap` fails, tell the user to run the helper from a
    logged-in macOS GUI session that can manage LaunchAgents.
+9. If the helper reports a MagicDNS or discovery URL verification failure, do
+   not hand out the pairing code. Help the user fix Tailscale DNS integration
+   on the host first.
+10. If the helper specifically points out a Homebrew-only `tailscale` install
+    on macOS, tell the user to install or run `Tailscale.app` before retrying.
 
 ## Notes
 
@@ -37,6 +42,8 @@ their current machine, especially over Tailscale.
   for the phone when available.
 - The helper also loads a pairing broker LaunchAgent that serves discovery and
   code redemption on the tailnet.
+- The helper validates the advertised `.ts.net` hostname and then verifies the
+  actual discovery URL from the host before it issues a claim code.
 - The pairing code and QR image carry discovery information plus a short-lived
   claim code. They do not embed the bearer token.
 - The iOS sidekick accepts authenticated `ws://` pairing for Tailscale hosts,

@@ -26,6 +26,17 @@ It also checks for those auth flags before launch. If the selected binary is
 older and does not support them yet, point `CODEX_BIN` at a newer or repo-built
 Codex binary before running the helper.
 
+The helper validates the advertised `.ts.net` hostname before it emits a
+discovery URL, and then verifies that the exact discovery URL is reachable from
+the host before it issues a claim code. If MagicDNS appears enabled in
+Tailscale but the host machine cannot actually resolve or reach that name, the
+helper fails with a clear error instead of handing the phone a broken discovery
+target.
+
+On macOS, the helper also points out the common case where the machine appears
+to have only the Homebrew `tailscale` CLI and not `Tailscale.app`, since that
+often means the system resolver is not handling `.ts.net` hostnames.
+
 ## Why this stays separate from the app
 
 The iPhone app is a standalone native client. This plugin is only the desktop

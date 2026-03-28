@@ -100,6 +100,38 @@ if [[ -z "${PAIR_HOST:-}" ]]; then
 fi
 HOST_LABEL="${HOST_LABEL:-${TAILSCALE_DNS_NAME:-$PAIR_HOST}}"
 
+print_macos_tailscale_dns_hint() {
+  if [[ "$TAILSCALE_BIN" == /opt/homebrew/* || "$TAILSCALE_BIN" == /usr/local/* ]]; then
+    if [[ ! -d "/Applications/Tailscale.app" ]]; then
+      echo "This Mac appears to have the Homebrew tailscale CLI but not /Applications/Tailscale.app." >&2
+      echo "On macOS, install or run the Tailscale app so the system resolver can answer .ts.net names." >&2
+    fi
+  fi
+}
+
+if [[ "$PAIR_HOST" == *.ts.net ]]; then
+  if ! "$PYTHON_BIN" - <<'PY' "$PAIR_HOST" >/dev/null
+import socket
+import sys
+
+host = sys.argv[1]
+try:
+    addresses = sorted({info[4][0] for info in socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)})
+except socket.gaierror:
+    raise SystemExit(1)
+if not addresses:
+    raise SystemExit(1)
+PY
+  then
+    echo "tailscale MagicDNS appears enabled, but this machine cannot resolve $PAIR_HOST" >&2
+    echo "Fix MagicDNS/system DNS integration before using discovery-first Tailscale pairing." >&2
+    echo "On macOS, verify that the Tailscale client with DNS integration is installed and that Tailscale DNS is enabled." >&2
+    print_macos_tailscale_dns_hint
+    echo "The helper will not emit a broken discovery URL." >&2
+    exit 1
+  fi
+fi
+
 LISTEN_URL="ws://$LISTEN_HOST:$PORT"
 PAIRING_URL="ws://$PAIR_HOST:$PORT"
 DISCOVERY_URL="http://$PAIR_HOST:$PAIR_PORT/v1/discover"
@@ -253,6 +285,24 @@ wait_for_ready() {
 
 wait_for_ready "http://$LISTEN_HOST:$PORT/readyz" "codex app-server" "$LOG_FILE"
 wait_for_ready "http://$BROKER_LISTEN_HOST:$PAIR_PORT/readyz" "pairing broker" "$PAIRING_LOG_FILE"
+
+verify_advertised_discovery_url() {
+  local url="$1"
+
+  for _ in 1 2 3; do
+    if curl --silent --show-error --fail --max-time 3 "$url" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+
+  echo "The advertised discovery URL is not reachable from this Mac: $url" >&2
+  echo "Fix Tailscale DNS/routing before handing this pairing target to your phone." >&2
+  print_macos_tailscale_dns_hint
+  exit 1
+}
+
+verify_advertised_discovery_url "$DISCOVERY_URL"
 
 CODE_PAYLOAD="$("$PYTHON_BIN" "$SCRIPT_DIR/sidekick-pairing-broker.py" issue-code --state-dir "$STATE_DIR" --ttl-seconds "$CODE_TTL_SECONDS" --code-length "$CODE_LENGTH")"
 PAIRING_CODE="$(
