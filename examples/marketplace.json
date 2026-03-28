@@ -8,7 +8,7 @@
       "name": "codex-sidekick-plugin",
       "source": {
         "source": "local",
-        "path": "./plugins/codex-sidekick-plugin"
+        "path": "./.codex/plugins/codex-sidekick-plugin"
       },
       "policy": {
         "installation": "AVAILABLE",
