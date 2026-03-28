@@ -10,7 +10,8 @@ Codex codebase.
 - Prepare a launchd-managed `codex app-server` listener for the iPhone sidekick
 - Prefer Tailscale host discovery for real-phone pairing
 - Generate or reuse a bearer token for authenticated websocket pairing
-- Print a ready-to-use pairing payload for the phone UI
+- Emit a ready-to-use pairing payload for the phone UI
+- Optionally export a pairing code or QR image for one-step phone import
 
 ## Binary compatibility
 
@@ -77,3 +78,11 @@ action without changing the underlying host setup.
 Use `SHOW_TOKEN=1 scripts/pair-over-tailscale.sh` or
 `scripts/pair-over-tailscale.sh --show-token` only when you explicitly need the
 full bearer token in stdout.
+
+Use `SHOW_PAIRING_CODE=1 scripts/pair-over-tailscale.sh` or
+`scripts/pair-over-tailscale.sh --show-pairing-code` when you want a compact
+pairing code plus a `codexsidekick://pair?...` deep link.
+
+Use `QR_FILE=~/.codex-sidekick/pairing-qr.png scripts/pair-over-tailscale.sh`
+or `scripts/pair-over-tailscale.sh --qr-file ~/.codex-sidekick/pairing-qr.png`
+to render a QR PNG that the iPhone app can open directly.

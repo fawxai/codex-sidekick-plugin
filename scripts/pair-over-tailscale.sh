@@ -3,10 +3,33 @@
 set -euo pipefail
 
 SHOW_TOKEN="${SHOW_TOKEN:-0}"
-if [[ "${1:-}" == "--show-token" ]]; then
-  SHOW_TOKEN=1
+SHOW_PAIRING_CODE="${SHOW_PAIRING_CODE:-0}"
+QR_FILE="${QR_FILE:-}"
+SCRIPT_DIR="${0:A:h}"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --show-token)
+      SHOW_TOKEN=1
+      ;;
+    --show-pairing-code)
+      SHOW_PAIRING_CODE=1
+      ;;
+    --qr-file)
+      if [[ $# -lt 2 ]]; then
+        echo "--qr-file requires an output path" >&2
+        exit 1
+      fi
+      QR_FILE="$2"
+      shift
+      ;;
+    *)
+      echo "unknown option: $1" >&2
+      exit 1
+      ;;
+  esac
   shift
-fi
+done
 
 PORT="${PORT:-4222}"
 STATE_DIR="${STATE_DIR:-$HOME/.codex-sidekick}"
@@ -71,6 +94,41 @@ PY
 fi
 
 TOKEN="$(tr -d '\r\n' < "$TOKEN_FILE")"
+PAIRING_ARTIFACT="$(
+  python3 - <<'PY' "$PAIRING_URL" "$TOKEN"
+import base64
+import json
+import sys
+import urllib.parse
+
+pairing_url, token = sys.argv[1:]
+payload = {
+    "version": 1,
+    "websocketURL": pairing_url,
+    "authToken": token,
+}
+encoded = base64.urlsafe_b64encode(
+    json.dumps(payload, separators=(",", ":")).encode()
+).decode().rstrip("=")
+pairing_code = f"codex-sidekick:v1:{encoded}"
+pairing_link = "codexsidekick://pair?code=" + urllib.parse.quote(pairing_code, safe="")
+print(pairing_code)
+print(pairing_link)
+PY
+)"
+PAIRING_CODE="$(printf '%s\n' "$PAIRING_ARTIFACT" | sed -n '1p')"
+PAIRING_LINK="$(printf '%s\n' "$PAIRING_ARTIFACT" | sed -n '2p')"
+
+if [[ -n "$QR_FILE" ]]; then
+  if command -v xcrun >/dev/null 2>&1; then
+    xcrun swift "$SCRIPT_DIR/render-pairing-qr.swift" "$PAIRING_LINK" "$QR_FILE"
+  elif command -v swift >/dev/null 2>&1; then
+    swift "$SCRIPT_DIR/render-pairing-qr.swift" "$PAIRING_LINK" "$QR_FILE"
+  else
+    echo "swift is required to render a pairing QR image" >&2
+    exit 1
+  fi
+fi
 
 write_plist() {
   python3 - <<'PY' "$PLIST_FILE" "$SERVICE_LABEL" "$CODEX_BIN" "$LISTEN_URL" "$TOKEN_FILE" "$STATE_DIR" "$LOG_FILE"
@@ -145,11 +203,25 @@ SERVICE_PID="$(
   launchctl print "$service_target" 2>/dev/null | awk '/\bpid = / { print $3; exit }'
 )"
 
-python3 - <<'PY' "$PAIRING_URL" "$LISTEN_URL" "$TOKEN" "$TOKEN_FILE" "$SERVICE_PID" "$LOG_FILE" "$SERVICE_LABEL" "$PLIST_FILE" "$SHOW_TOKEN"
+python3 - <<'PY' "$PAIRING_URL" "$LISTEN_URL" "$TOKEN" "$TOKEN_FILE" "$SERVICE_PID" "$LOG_FILE" "$SERVICE_LABEL" "$PLIST_FILE" "$SHOW_TOKEN" "$SHOW_PAIRING_CODE" "$PAIRING_CODE" "$PAIRING_LINK" "$QR_FILE"
 import json
 import sys
 
-pairing_url, listen_url, token, token_file, pid, log_file, service_label, plist_file, show_token = sys.argv[1:]
+(
+    pairing_url,
+    listen_url,
+    token,
+    token_file,
+    pid,
+    log_file,
+    service_label,
+    plist_file,
+    show_token,
+    show_pairing_code,
+    pairing_code,
+    pairing_link,
+    qr_file,
+) = sys.argv[1:]
 payload = {
     "status": "started",
     "pairingUrl": pairing_url,
@@ -168,6 +240,13 @@ if show_token == "1":
 else:
     payload["tokenPreview"] = f"{token[:4]}...{token[-4:]}" if len(token) >= 8 else "<redacted>"
     payload["tokenRedacted"] = True
+
+if show_pairing_code == "1":
+    payload["pairingCode"] = pairing_code
+    payload["pairingLink"] = pairing_link
+
+if qr_file:
+    payload["pairingQRCodeFile"] = qr_file
 
 print(json.dumps(payload, indent=2))
 PY
