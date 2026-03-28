@@ -12,6 +12,7 @@ Codex codebase.
 - Generate or reuse a bearer token for authenticated websocket pairing
 - Issue short-lived 8-character claim codes
 - Optionally export a QR image that carries the discovery URL plus claim code
+- Validate the plugin manifest and required skill metadata before release
 
 ## Binary compatibility
 
@@ -40,6 +41,8 @@ often means the system resolver is not handling `.ts.net` hostnames.
 
 The iPhone app is a standalone native client. This plugin is only the desktop
 companion that helps the host machine expose and describe a safe pairing target.
+It intentionally does not configure public-internet pairing or a loopback-only
+iPhone fallback.
 
 ## Local structure
 
@@ -49,19 +52,32 @@ companion that helps the host machine expose and describe a safe pairing target.
   LaunchAgent for `codex app-server`
 - `scripts/stop-sidekick-server.sh`: unload and remove the helper-managed
   LaunchAgent
+- `scripts/validate-plugin.sh`: validate manifest JSON and required skill
+  metadata
 - `examples/marketplace.json`: local marketplace entry example
 
 ## Local install shape
 
-One reasonable local setup is:
+One reasonable personal setup is:
 
-1. Clone this repo to `~/.agents/plugins/plugins/codex-sidekick-plugin`
+1. Copy or clone this repo to `~/.codex/plugins/codex-sidekick-plugin`
 2. Copy `examples/marketplace.json` to `~/.agents/plugins/marketplace.json`
    and merge it with any existing local plugin entries
-3. Let Codex discover the plugin from that local marketplace
+3. Restart Codex and let it discover the plugin from that local marketplace
 
-The example marketplace entry uses the standard local plugin path
-`./plugins/codex-sidekick-plugin` relative to `~/.agents/plugins/marketplace.json`.
+The example marketplace entry uses the personal plugin path
+`./.codex/plugins/codex-sidekick-plugin`.
+
+That `source.path` is resolved from the personal marketplace root `~`, not from
+the `~/.agents/plugins/` folder that stores `marketplace.json`.
+
+If you maintain a separate repo-scoped marketplace, keep the plugin under that
+repo root, often at `./plugins/codex-sidekick-plugin`, and point the repo
+marketplace entry there.
+
+This path format follows the current Codex plugin contract as of March 2026. If
+your installed Codex version changes marketplace path resolution behavior,
+verify the expected structure against that version's plugin docs.
 
 ## Runtime caveat
 
@@ -103,3 +119,9 @@ to render a QR PNG that the iPhone app can open directly.
 
 The helper's QR/deep link contains only the discovery URL plus the short-lived
 claim code. It does not embed the bearer token.
+
+## Validation
+
+Run `scripts/validate-plugin.sh` after changing the manifest, marketplace
+example, or skill metadata. It checks that the JSON files parse and that every
+bundled `SKILL.md` includes the required `name` and `description` frontmatter.

@@ -1,3 +1,8 @@
+---
+name: sidekick-pair
+description: Prepare or inspect Codex Sidekick iPhone pairing targets on the current Mac over Tailscale. Use for private-overlay pairing, claim-code generation, and QR export; do not use it for generic remote hosting or public-internet exposure.
+---
+
 # Codex Sidekick Pairing
 
 Use this skill when the user wants to pair the Codex Sidekick iPhone app with
@@ -22,8 +27,8 @@ their current machine, especially over Tailscale.
 5. Share the bearer token only when the user truly needs to enter it into the
    phone manually. Prefer reading it from the token file or rerunning the
    helper with `SHOW_TOKEN=1`.
-6. If Tailscale is unavailable, say so plainly and offer loopback pairing
-   instead.
+6. If Tailscale is unavailable, say so plainly and explain that this plugin
+   does not provide a public-internet or loopback iPhone pairing fallback.
 7. If the helper reports that `codex` does not support `--ws-auth`, tell the
    user to point `CODEX_BIN` at a newer or repo-built Codex binary.
 8. If `launchctl bootstrap` fails, tell the user to run the helper from a
@@ -49,4 +54,5 @@ their current machine, especially over Tailscale.
 - The pairing code and QR image carry discovery information plus a short-lived
   claim code. They do not embed the bearer token.
 - The iOS sidekick accepts authenticated `ws://` pairing for Tailscale hosts,
-  but still requires `wss://` for general remote internet hosts.
+  but still requires `wss://` for general remote internet hosts. This plugin
+  does not configure that general remote path.
