@@ -91,14 +91,7 @@ fi
 
 LISTEN_HOST="${LISTEN_HOST:-$TAILSCALE_IPV4}"
 BROKER_LISTEN_HOST="${BROKER_LISTEN_HOST:-$TAILSCALE_IPV4}"
-if [[ -z "${PAIR_HOST:-}" ]]; then
-  if [[ -z "$TAILSCALE_DNS_NAME" ]]; then
-    echo "tailscale MagicDNS name not available; discovery-first pairing requires a .ts.net host name" >&2
-    exit 1
-  fi
-  PAIR_HOST="$TAILSCALE_DNS_NAME"
-fi
-HOST_LABEL="${HOST_LABEL:-${TAILSCALE_DNS_NAME:-$PAIR_HOST}}"
+PAIR_HOST_EXPLICIT="${PAIR_HOST:-}"
 
 print_macos_tailscale_dns_hint() {
   if [[ "$TAILSCALE_BIN" == /opt/homebrew/* || "$TAILSCALE_BIN" == /usr/local/* ]]; then
@@ -109,8 +102,10 @@ print_macos_tailscale_dns_hint() {
   fi
 }
 
-if [[ "$PAIR_HOST" == *.ts.net ]]; then
-  if ! "$PYTHON_BIN" - <<'PY' "$PAIR_HOST" >/dev/null
+host_resolves() {
+  local host="$1"
+
+  "$PYTHON_BIN" - <<'PY' "$host" >/dev/null
 import socket
 import sys
 
@@ -122,7 +117,11 @@ except socket.gaierror:
 if not addresses:
     raise SystemExit(1)
 PY
-  then
+}
+
+if [[ -n "$PAIR_HOST_EXPLICIT" ]]; then
+  PAIR_HOST="$PAIR_HOST_EXPLICIT"
+  if [[ "$PAIR_HOST" == *.ts.net ]] && ! host_resolves "$PAIR_HOST"; then
     echo "tailscale MagicDNS appears enabled, but this machine cannot resolve $PAIR_HOST" >&2
     echo "Fix MagicDNS/system DNS integration before using discovery-first Tailscale pairing." >&2
     echo "On macOS, verify that the Tailscale client with DNS integration is installed and that Tailscale DNS is enabled." >&2
@@ -130,7 +129,19 @@ PY
     echo "The helper will not emit a broken discovery URL." >&2
     exit 1
   fi
+else
+  if [[ -n "$TAILSCALE_DNS_NAME" ]] && host_resolves "$TAILSCALE_DNS_NAME"; then
+    PAIR_HOST="$TAILSCALE_DNS_NAME"
+  else
+    if [[ -n "$TAILSCALE_DNS_NAME" ]]; then
+      echo "tailscale MagicDNS name $TAILSCALE_DNS_NAME is not locally resolvable; falling back to tailnet IP $TAILSCALE_IPV4 for pairing." >&2
+      print_macos_tailscale_dns_hint
+    fi
+    PAIR_HOST="$TAILSCALE_IPV4"
+  fi
 fi
+
+HOST_LABEL="${HOST_LABEL:-${TAILSCALE_DNS_NAME:-$PAIR_HOST}}"
 
 LISTEN_URL="ws://$LISTEN_HOST:$PORT"
 PAIRING_URL="ws://$PAIR_HOST:$PORT"
