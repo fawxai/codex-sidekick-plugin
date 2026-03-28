@@ -2,26 +2,15 @@
 
 set -euo pipefail
 
-STATE_DIR="${STATE_DIR:-$HOME/.codex-sidekick}"
-PID_FILE="${PID_FILE:-$STATE_DIR/app-server.pid}"
+LAUNCH_AGENTS_DIR="${LAUNCH_AGENTS_DIR:-$HOME/Library/LaunchAgents}"
+SERVICE_LABEL="${SERVICE_LABEL:-com.fawxai.codex-sidekick.app-server}"
+PLIST_FILE="${PLIST_FILE:-$LAUNCH_AGENTS_DIR/$SERVICE_LABEL.plist}"
 
-if [[ ! -f "$PID_FILE" ]]; then
-  echo "No sidekick app-server pid file found at $PID_FILE" >&2
-  exit 1
-fi
-
-APP_SERVER_PID="$(tr -d '\r\n' < "$PID_FILE")"
-
-if [[ -z "$APP_SERVER_PID" ]]; then
-  echo "PID file is empty: $PID_FILE" >&2
-  exit 1
-fi
-
-if kill -0 "$APP_SERVER_PID" 2>/dev/null; then
-  kill "$APP_SERVER_PID"
-  echo "Stopped sidekick app-server pid $APP_SERVER_PID"
+if [[ -f "$PLIST_FILE" ]]; then
+  launchctl bootout "gui/$UID" "$PLIST_FILE" >/dev/null 2>&1 || true
+  rm -f "$PLIST_FILE"
+  echo "Stopped sidekick app-server service $SERVICE_LABEL"
 else
-  echo "Process $APP_SERVER_PID is not running"
+  launchctl bootout "gui/$UID/$SERVICE_LABEL" >/dev/null 2>&1 || true
+  echo "Service $SERVICE_LABEL was not installed via plist file"
 fi
-
-rm -f "$PID_FILE"

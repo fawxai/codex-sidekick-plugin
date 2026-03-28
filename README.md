@@ -7,7 +7,7 @@ Codex codebase.
 
 ## Current scope
 
-- Prepare a `codex app-server` listener for the iPhone sidekick
+- Prepare a launchd-managed `codex app-server` listener for the iPhone sidekick
 - Prefer Tailscale host discovery for real-phone pairing
 - Generate or reuse a bearer token for authenticated websocket pairing
 - Print a ready-to-use pairing payload for the phone UI
@@ -34,9 +34,10 @@ companion that helps the host machine expose and describe a safe pairing target.
 
 - `.codex-plugin/plugin.json`: plugin manifest
 - `skills/sidekick-pair/SKILL.md`: the pairing workflow Codex should follow
-- `scripts/pair-over-tailscale.sh`: host-side helper that starts
-  `codex app-server` for the phone
-- `scripts/stop-sidekick-server.sh`: stop the helper-managed websocket server
+- `scripts/pair-over-tailscale.sh`: host-side helper that writes and loads a
+  LaunchAgent for `codex app-server`
+- `scripts/stop-sidekick-server.sh`: unload and remove the helper-managed
+  LaunchAgent
 - `examples/marketplace.json`: local marketplace entry example
 
 ## Local install shape
@@ -53,11 +54,9 @@ The example marketplace entry uses the standard local plugin path
 
 ## Runtime caveat
 
-The helper is designed for a normal host shell session. Some command runners
-reap detached child processes when the launching command finishes. If you hit
-that behavior inside a plugin-hosted shell environment, run the helper from a
-real terminal session or move the long-lived launcher into a future native
-desktop integration.
+The helper uses a per-user macOS LaunchAgent. Run it from a logged-in desktop
+session that has access to `launchctl bootstrap gui/$UID`. Headless shells and
+some CI-style sessions may not have permission to install LaunchAgents.
 
 ## Helper output
 
@@ -65,10 +64,16 @@ The pairing helper emits a small JSON payload with:
 
 - `pairingUrl`
 - `listenUrl`
-- `token`
 - `tokenFile`
-- `pid`
+- `serviceLabel`
+- `plistFile`
+- `pid` when available from `launchctl`
 - `logFile`
+- `tokenPreview` by default
 
 That output is designed so a future plugin UX can surface a QR code or copy
 action without changing the underlying host setup.
+
+Use `SHOW_TOKEN=1 scripts/pair-over-tailscale.sh` or
+`scripts/pair-over-tailscale.sh --show-token` only when you explicitly need the
+full bearer token in stdout.
