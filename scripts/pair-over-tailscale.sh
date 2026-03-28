@@ -54,6 +54,7 @@ TAILSCALE_BIN="${TAILSCALE_BIN:-$(command -v tailscale || true)}"
 PYTHON_BIN="${PYTHON_BIN:-$(command -v python3 || true)}"
 
 mkdir -p "$STATE_DIR" "$LOG_DIR" "$LAUNCH_AGENTS_DIR"
+chmod 700 "$STATE_DIR"
 
 if [[ -z "$CODEX_BIN" ]]; then
   echo "codex binary not found in PATH" >&2
@@ -153,8 +154,8 @@ if [[ ! -s "$TOKEN_FILE" ]]; then
 import secrets
 print(secrets.token_urlsafe(32))
 PY
-  chmod 600 "$TOKEN_FILE"
 fi
+chmod 600 "$TOKEN_FILE"
 
 TOKEN="$(tr -d '\r\n' < "$TOKEN_FILE")"
 
