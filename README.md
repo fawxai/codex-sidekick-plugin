@@ -79,6 +79,20 @@ This path format follows the current Codex plugin contract as of March 2026. If
 your installed Codex version changes marketplace path resolution behavior,
 verify the expected structure against that version's plugin docs.
 
+## Using it from Codex
+
+After Codex has discovered the plugin and the Sidekick iPhone app is installed
+and open, tell Codex to prepare pairing for this Mac.
+
+Example prompts:
+
+- `Prepare Codex Sidekick pairing over Tailscale and give me a pairing code.`
+- `Start a Codex app-server for my iPhone sidekick and show me the discovery URL.`
+- `Prepare Codex Sidekick pairing over Tailscale and export a QR code for my phone.`
+
+That flow should cause Codex to run the helper, start the LaunchAgents, and
+return the current discovery target plus a short-lived pairing code.
+
 ## Runtime caveat
 
 The helper uses per-user macOS LaunchAgents. Run it from a logged-in desktop
