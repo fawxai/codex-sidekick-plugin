@@ -1,3 +1,11 @@
 .DS_Store
 *.log
 *.tmp
+__pycache__/
+
+# Ignore local sidekick runtime state in case STATE_DIR is pointed at the repo.
+tailscale-token.txt
+pairing-codes.json
+pairing-codes.json.lock
+pairing-codes.json.tmp
+logs/

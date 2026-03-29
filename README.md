@@ -85,6 +85,11 @@ The helper uses per-user macOS LaunchAgents. Run it from a logged-in desktop
 session that has access to `launchctl bootstrap gui/$UID`. Headless shells and
 some CI-style sessions may not have permission to install LaunchAgents.
 
+The launch helper scripts use `zsh` and assume a macOS shell environment. Run
+`scripts/pair-over-tailscale.sh` and `scripts/stop-sidekick-server.sh` with the
+system `zsh` rather than `bash`. The validator script is shell-portable and can
+run under `bash`.
+
 ## Helper output
 
 The pairing helper emits a small JSON payload with:
